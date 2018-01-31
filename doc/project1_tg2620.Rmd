@@ -1,9 +1,9 @@
 ---
-title: "Comparison between 5 different party"
+title: "Comparison between five different party"
 output:
-  html_document:
-    df_print: paged
   html_notebook:
+    df_print: paged
+  html_document:
     df_print: paged
 ---
 
