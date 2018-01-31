@@ -1,0 +1,385 @@
+---
+title: "Comparison between 5 different party"
+output:
+  html_document:
+    df_print: paged
+  html_notebook:
+    df_print: paged
+---
+
+
+Tao Guo(tg2620)
+
+Through out the whole history, the competition between the five groups have always been an topic. Let's find out together what common and difference between all the precidents within each group by their Inauguration Speeches. We will consider throuth serval parts like Words Analysis, Sentences Analysis, Emotion Analysis and so on. By analysing the speeches between each party, maybe we can predict the tendency of potantial furture leading-party and the trend of what may interest people in the area of politics, economy and other scenarios. Now let's go and find out with me!
+
+Step-0
+
+First,we should load the pakages what we may use for data mining and text processing. If there not packages in there we should load them as well as their dependencies.
+```{r,message=FALSE, warning=FALSE}
+setwd("/Users/coco/Documents/GitHub/Spring2018-Project1-cocogt96/doc")
+packages.used=c("rvest", "tibble", "qdap", 
+                "sentimentr", "gplots", "dplyr",
+                "tm", "syuzhet", "factoextra", 
+                "beeswarm", "scales", "RColorBrewer",
+                "RANN", "tm", "topicmodels")
+
+# check packages that need to be installed.
+packages.needed=setdiff(packages.used, 
+                        intersect(installed.packages()[,1], 
+                                  packages.used))
+# install additional packages
+if(length(packages.needed)>0){
+  install.packages(packages.needed, dependencies = TRUE)
+}
+
+# load packages
+library("rvest")
+library("tibble")
+# You may need to run
+# sudo ln -f -s $(/usr/libexec/java_home)/jre/lib/server/libjvm.dylib /usr/local/lib
+# in order to load qdap
+library("sentimentr")
+library("gplots")
+library("dplyr")
+library("tm")
+library("syuzhet")
+library("factoextra")
+library("beeswarm")
+library("scales")
+library("RColorBrewer")
+library("RANN")
+library("tm")
+library("topicmodels")
+library("tidyr")
+library("stringr")
+library("readr")
+library(qdap)
+library(wordcloud)
+library(RColorBrewer)
+library(dplyr)
+library(plyr)
+library(tidytext)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+
+library(dmm)
+library(rJava)
+source("../lib/plot.R")
+
+```
+
+Step-1
+
+Managing the data in to some managable form. In order to do so, we should first read in both the InaugurationInfo and InauguationDates. And then combine them and drop extra redundancy data. After that we now have each row for each Inauguration speech which unique in $File or $President so that we read in each Inauguration speech as fulltext. So the final form all save in dataframe speeches.list has been done with the order of Capital letter of their presidents.
+```{r,message=FALSE, warning=FALSE}
+info=read.csv("/Users/coco/Documents/GitHub/Spring2018-Project1-cocogt96/data/InaugurationInfo.csv", stringsAsFactors = FALSE)
+date=read.table("/Users/coco/Documents/GitHub/Spring2018-Project1-cocogt96/data/InauguationDates.txt",fill=T,header = T,sep="\t")
+folder.path="../data/InauguralSpeeches/"
+speeches=list.files(path = folder.path, pattern = "*.txt")
+index=order(info$President)
+InaugurationInfo=info
+for(i in 1:58){
+  InaugurationInfo[i,]=info[index[i],]
+}
+date.thin=date%>%gather(speechterm,speechdate,'FIRST':'FOURTH')
+Dt=date.thin[-which(date.thin$speechdate==""),]
+index.inaugu=order(Dt$PRESIDENT)
+Inaugutemp=Dt
+for(i in 1:67){
+  Inaugutemp[i,]=Dt[index.inaugu[i],]
+}
+Inaugutemp1=Inaugutemp
+Inaugutemp1[31,]=Inaugutemp[32,]
+Inaugutemp1[32,]=Inaugutemp[31,]
+Inaugutemp1[21,]=Inaugutemp[23,]
+Inaugutemp1[22,]=Inaugutemp[24,]
+Inaugutemp1[23,]=Inaugutemp[21,]
+Inaugutemp1[24,]=Inaugutemp[22,]
+InauguationDates=Inaugutemp1[-c(5,10,11,25,29,42,44,46,53),]
+speeches.list=cbind(InaugurationInfo,InauguationDates)
+speeches.list=subset(speeches.list,select=-c(PRESIDENT,speechterm))
+speeches.list$fulltext=NA
+for(i in 1:58){
+  filename=(paste0(folder.path,speeches[i]))
+  text=read_file(filename)
+  speeches.list$fulltext[i]=text
+}
+head(speeches.list,5)
+```
+
+Step-2 Sentences based Analysis
+
+In order to analyse based on scentences, we split the fulltext in to scentences. So now we have a dataframe sentences.list each row corresponding to each scentence.
+
+```{r, message=FALSE, warning=FALSE}
+sentences.list=NULL
+sentences=NULL
+for(i in 1:nrow(speeches.list)){
+  sentences=sent_detect(speeches.list$fulltext[i],
+                        endmarks = c("?", ".", "!", "|",";"))
+  if(length(sentences)>0){
+    emotions=get_nrc_sentiment(sentences)
+    word.count=word_count(sentences)
+    # colnames(emotions)=paste0("emo.", colnames(emotions))
+    # in case the word counts are zeros?
+    emotions=diag(1/(word.count+0.01))%*%as.matrix(emotions)
+    sentences.list=rbind(sentences.list, 
+                        cbind(speeches.list[i,-ncol(speeches.list)],
+                              sentences=as.character(sentences), 
+                              word.count,
+                              emotions,
+                              sent.id=1:length(sentences)
+                              )
+    )
+  }
+}
+head(sentences.list,5)
+```
+
+
+First, we consider the beeswarm plot for the whole data and group by the 5 seperate party. We can see from the plot that each party have similar min and max scentences length. However, we can see from the width of plot that the dominate precentage of Number of words in a sentence is between 0-40 for Republican and Democratic, while Fedralist and Whig seems evenly distriuted. 
+
+```{r,message=FALSE, warning=FALSE,}
+
+#par(mar=c(4, 11, 2, 2))
+
+#sel.comparison=levels(sentence.list$FileOrdered)
+
+P=sentences.list
+P$Party=factor(P$Party)
+P$PartyOrdered=reorder(P$Party,P$word.count,mean,order = T)
+beeswarm(word.count~PartyOrdered, 
+         data=P,
+         horizontal = TRUE, 
+         pch=16, col=alpha(brewer.pal(9, "Set1"), 0.6), 
+         cex=0.55, cex.axis=0.8, cex.lab=0.8,
+         spacing=3/nlevels(P$PartyOrdered),
+         las=2, xlab="Number of words in a sentence.", ylab="",
+         main="Different Party Speeches")
+
+```
+
+
+In order to see more insightful about each party, and decide the true or false of our judgement above. We looks into the beeswarm plot for each party. We find that there are only 2 people in Fedralist and 1 people in Whig so they can not explain the even for the two party. However, we can conclud that Republican, Democratic and Democratic-Republican party prefer to use less words in each scentences than Fedralist and Whig.
+
+```{r,fig.width = 10, fig.height = 12,message=FALSE, warning=FALSE}
+par(mar=c(3, 6, 2, 1),mfrow=c(3,2))
+for(i in na.omit(unique(sentences.list$Party))){
+  Party.sep=filter(sentences.list, Party==i)
+  Party.sep$File=factor(Party.sep$File)
+  Party.sep$FileOrdered=reorder(Party.sep$File, 
+                                  Party.sep$word.count, 
+                                  mean, 
+                                  order=T)
+beeswarm(word.count~FileOrdered, 
+         data=Party.sep,
+         horizontal = TRUE, 
+         pch=16, col=alpha(brewer.pal(9, "Set1"), 0.6), 
+         cex=0.55, cex.axis=0.8, cex.lab=0.8,
+         spacing=5/nlevels(Party.sep$FileOrdered),
+         las=2, xlab="Number of words in a sentence.", ylab="",
+         main=(paste0(i," Speeches")))
+}
+
+```
+
+
+Step-3 Emotion based Analysis
+
+First, we analyse the emotion chances based on scentences. To do that we find which scentence result in max value in 8 emotion: anger, anticipation, disgust, fear, joy, sadness, surprise, trust for seperate 5 party. For example, the most anger scentence for Democratic is "The Capital was abandoned.". Also from this perspective we can conclude again how long scentences Fedralist perfer to use than the others.
+
+```{r,message=FALSE, warning=FALSE}
+#find the max from anger to trust
+for(i in na.omit(unique(sentences.list$Party))){
+  cat("\n")
+  print(i)
+  
+  s.d<-tbl_df(sentences.list)%>%filter(Party==i, word.count>=4)  
+  sentences.df=subset(s.d,select=c(sentences,anger:trust))
+  sentences.df=as.data.frame(sentences.df)
+  print(as.character(sentences.df$sentences[apply(sentences.df[,-1], 2, which.max)]))
+}
+```
+
+Then we analyse emotions to find out which emotion dominate in each party and which not. From the result we can see that the common emotion in both party is trust dominate the whole emotion, some party like Fedralist even the percentage of trust reach up to 80%. From this we can conclude that trust is a common topic that president will concern. However, for the second dominate emotion, the first three party is anticipation while the Fedralist is joy and Whig is fear. From this we can see the changes of emotions between different partys.
+
+```{r,fig.width = 10, fig.height = 10,message=FALSE, warning=FALSE}
+par(mar=c(3, 6, 2, 1),mfrow=c(3,2))
+for(i in na.omit(unique(sentences.list$Party))){
+  e<-sentences.list%>%filter(Party==i)
+  ee<-subset(e,select=anger:trust)
+  emo.means=colMeans(ee,na.rm = T)
+col.use=c("#FF6699", "#FF3366", 
+            "#FF99CC", "#FF66CC",
+            "#FF33CC", "#FFCCFF", 
+            "#FF66FF", "#FF6666")
+barplot(emo.means[order(emo.means)], las=2, col=col.use[order(emo.means)], horiz=T, main=paste0(i," Speeches"))
+}
+```
+
+Step-4 Word and Topic based Analysis 
+
+To discover word frequency, we use wordcloud. First we clean the corpus of the data, remove the puctuation and stop words also transform all the upper case into small. From the Wordcloud below we can see that the most meaning noun are government, people, world, states. Some others likes peace freedom is also large enough. So we can conclude that the theme of the whole speeches through out the year is popular with these aspects.
+
+```{r, message=FALSE, warning=FALSE}
+
+ff.all<-Corpus(DirSource(folder.path))
+
+ff.all<-tm_map(ff.all, stripWhitespace)
+ff.all<-tm_map(ff.all, content_transformer(tolower))
+ff.all<-tm_map(ff.all, removeWords, stopwords("english"))
+ff.all<-tm_map(ff.all, removeWords, character(0))
+ff.all<-tm_map(ff.all, removePunctuation)
+
+
+tdm.all<-TermDocumentMatrix(ff.all)
+
+tdm.tidy=tidy(tdm.all)
+tdm.overall=summarise(group_by(tdm.tidy,term), sum(count))
+abc<-aggregate(tdm.tidy$count,by=list(tdm.tidy$term),sum)
+wordcloud(abc$Group.1, abc$x,
+          scale=c(5,0.5),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+
+
+```
+
+From the seperate wordcloud below we can see that different emphysis for different party. For example, for Democratic, we see some words like democracy, union texas some sort of words, these words may reveal their attitude towards the system and mechanism of this party as well as there amphythesis area of U.S., may be like Texas, for it appears many time. And other party can be derived in the same way.
+
+```{r,fig.width = 10, fig.height = 10, message=FALSE, warning=FALSE}
+dtm<-DocumentTermMatrix(ff.all,control = list(weighting =function(x) weightTfIdf(x,normalize = FALSE),stopwords=T))
+ff.dtm=tidy(dtm)
+Republican.Index=which(speeches.list$Party=="Republican")
+Democratic.Index=which(speeches.list$Party=="Democratic")
+DRP.Index=which(speeches.list$Party=="Democratic-Republican Party")
+Fedralist.Index=which(speeches.list$Party=="Fedralist")
+Whig.Index=which(speeches.list$Party=="Whig")
+index.party=c(Republican.Index,Democratic.Index,DRP.Index,Fedralist.Index,Whig.Index)
+mycompare<-function(x,Index){
+  if(x %in% Index[1:24])
+    return("R")
+  else if(x %in% Index[25:46])
+    return("D")
+  else if(x %in% Index[47:53])
+    return("DPR")
+  else if(x %in% Index[54])
+    return("F")
+  else
+    return("W")
+    
+}
+ff.p<-unlist(lapply(ff.dtm$document,mycompare,index.party))
+ff.ana<-cbind(ff.dtm,ff.p)
+ff.split<-split(ff.ana,ff.p)
+par(mar=c(2, 2, 2, 2),mfrow=c(3,2))
+my.cloud<-function(ff.sep){
+  fff<-aggregate(ff.sep$count,by=list(ff.sep$term),sum)
+  wordcloud(fff$Group.1, fff$x,
+            scale=c(2,0.1),
+            max.words=50,
+            min.freq=1,
+            random.order=FALSE,
+            rot.per=0.3,
+            use.r.layout=T,
+            random.color=FALSE,
+            colors=brewer.pal(9,"Blues"))
+}
+sapply(ff.split,my.cloud)
+
+
+```
+
+This plot below shows the if-idf value of each term of each party. From these plot we can see clearly about the frequency of each word in different party. For Democratic is Texas, compromised and wished. For Fedralist is pleasing, houses and legislatures. For Whig is roman, story and grant. For Democratic-republican is colonies, occurrences and preceding. For Republican is interstate, negro and breeze. From these high frequency words we can conclude that each party have its own theme or emphysis. So it is worth topic-modeling for further search.
+
+```{r,fig.width = 10, fig.height = 10,message=FALSE, warning=FALSE}
+
+mymean<-function(df){
+  tapply(df$count,df$term,mean)
+}
+wordbyparty<-sapply(ff.split,mymean)
+Dwords<-sort(wordbyparty$D,decreasing = T)
+DPRwords<-sort(wordbyparty$DPR,decreasing = T)
+Fwords<-sort(wordbyparty$F,decreasing = T)
+Rwords<-sort(wordbyparty$R,decreasing = T)
+Wwords<-sort(wordbyparty$W,decreasing = T)
+
+Dname<-names(Dwords[1:15])
+Dvalues<-as.vector(Dwords[1:15])
+D<-data.frame(Dname,Dvalues)
+D$Dname<-factor(D$Dname,levels =D$Dname[15:1])
+plotD<-ggplot(data = D,aes(x=Dname,y=Dvalues))+geom_bar(stat = "identity",fill="#FF6699")+
+  labs(title="Democratic")+
+  coord_flip()
+
+DPRname<-names(DPRwords[1:15])
+DPRvalues<-as.vector(DPRwords[1:15])
+DPR<-data.frame(DPRname,DPRvalues)
+DPR$DPRname<-factor(DPR$DPRname,levels =DPR$DPRname[15:1])
+plotDPR<-ggplot(data = DPR,aes(x=DPRname,y=DPRvalues))+geom_bar(stat = "identity",fill="#FF9999")+
+  labs(title="Democratic-Republican")+
+  coord_flip()
+
+Fname<-names(Fwords[1:15])
+Fvalues<-as.vector(Fwords[1:15])
+F<-data.frame(Fname,Fvalues)
+F$Fname<-factor(F$Fname,levels =F$Fname[15:1])
+plotF<-ggplot(data = F,aes(x=Fname,y=Fvalues))+geom_bar(stat = "identity",fill="#FF6666")+
+  labs(title="Fedralist")+
+  coord_flip()
+
+Rname<-names(Rwords[1:15])
+Rvalues<-as.vector(Rwords[1:15])
+R<-data.frame(Rname,Rvalues)
+R$Rname<-factor(R$Rname,levels =R$Rname[15:1])
+plotR<-ggplot(data = R,aes(x=Rname,y=Rvalues))+geom_bar(stat = "identity",fill="#FFCCCC")+
+  labs(title="Republican")+
+  coord_flip()
+
+Wname<-names(Wwords[1:15])
+Wvalues<-as.vector(Wwords[1:15])
+W<-data.frame(Wname,Rvalues)
+W$Wname<-factor(W$Wname,levels =W$Wname[15:1])
+plotW<-ggplot(data = W,aes(x=Wname,y=Wvalues))+geom_bar(stat = "identity",fill="#FF33CC")+
+  labs(title="Whig")+
+  coord_flip()
+
+
+
+multiplot(plotD,plotDPR,plotF,plotR,plotW,cols=3)
+```
+
+This last analysis we calculate the precentage of the high frequency words among the whole words each year and draw how the precentage change with time for each party. From the trend for each party, we conclude that for democratic, republican and whig, the trend of using the most frequent word is increasing so these party are making more emphysis on these topic. However the trend in Democratic-Republican is decreasing and there is only one year in Fedralist that use the words.
+
+```{r, fig.width = 10, fig.height = 10,message=FALSE, warning=FALSE}
+dateformat<-as.Date(speeches.list$speechdate,format='%m/%d/%Y')
+index.date<-order(dateformat)
+ff.time<-seq()
+class(ff.time)<-"Date"
+for(i in as.numeric(ff.ana$document)){
+  ff.time<-c(ff.time,dateformat[i])
+}
+ff.time=ff.time[-1]
+ff.final<-cbind(ff.ana,ff.time)
+ff.D<-ff.final[ff.final$ff.p=="D",]
+ff.year<-substr(ff.final$ff.time,1,4)
+ff.finall<-cbind(ff.final,ff.year)
+
+
+ggD<-DrawTrend(ff.finall,"D")
+ggDPR<-DrawTrend(ff.finall,"DPR")
+ggF<-DrawTrend(ff.finall,"F")
+ggR<-DrawTrend(ff.finall,"R")
+ggW<-DrawTrend(ff.finall,"W")
+multiplot(ggD,ggDPR,ggF,ggR,ggW,cols=2)
+```
+
+Conclusion: 
+
+We can analyse and compare the common and difference between different party.They all have their own charactics as well as same goal with each other. They all try to make U.S. a better country although with different methods and belief. Democratic and Republican can still be two dominate party in the area of politics in the society of the U.S. 
